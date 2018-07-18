@@ -3,7 +3,8 @@ from ..tools.tsne import tsne
 from ..tools.umap import umap
 from ..tools.diffmap import diffmap
 from ..tools.draw_graph import draw_graph
-
+from ..tools.rna_velocity import rna_velocity, compute_arrows_embedding, plot_velocity_arrows
+from ..tools.woublet import woublet
 from ..tools.paga import paga, paga_degrees, paga_expression_entropies, paga_compare_paths
 from ..tools.rank_genes_groups import rank_genes_groups
 from ..tools.dpt import dpt
