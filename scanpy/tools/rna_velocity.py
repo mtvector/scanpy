@@ -212,14 +212,13 @@ def compute_arrows_embedding(adata,basis="tsne"):
             diff /= norm(diff)
             V[i] += adjacency[j, i] * diff
     logg.info('added \'V_{}\' to `.obsm`'.format(basis))
-    #Is the sign correct???
-    adata.obsm['V_' + basis] = -V
     return(adata)
 
 #Adapted from velocyto
 def plot_velocity_arrows(adata,basis='tsne',cluster='louvain',cluster_colors='louvain_colors'):
     plt.figure(None,(14,14))
     quiver_scale = 1500
+    #Need to make deepcopys for some reason... Don't understand
     colors_list=copy.deepcopy( adata.uns[cluster_colors])
     clusters_list=copy.deepcopy(adata.obs[cluster])
     inds=np.array([int(x) for x in clusters_list],copy=True)
