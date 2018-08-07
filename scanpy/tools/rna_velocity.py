@@ -13,23 +13,29 @@ import re
 import anndata
 import copy
 
+def addCleanObsNames(adata,regex="-[0-9]"):
+    def gsub(regex, sub, l):
+        return([re.sub(regex, sub, x) for x in l])
+
+    try:
+        adata.obs.loc[:,"clean_obs_names"]=adata.obs.loc[:,"clean_obs_names"]
+    except:
+        adata.obs.loc[:,"clean_obs_names"]=adata.obs_names
+    adata.obs.loc[:,"clean_obs_names"]=gsub(regex, "",adata.obs.loc[:,"clean_obs_names"])
+    return(adata)
+
 def rna_velocity(adata,loomfile,basis='tsne',prefiltered=True,k=100,cleanObsRegex="-[0-9]"):
     def checkDuplicates(a):
         return(len(a) == len(set(a)))
+    
+    def gsub(regex, sub, l):
+        return([re.sub(regex, sub, x) for x in l])
 
     def gsub(regex, sub, l):
         return([re.sub(regex, sub, x) for x in l])
 
     def orderIntersectLists(a,b):
         set(a).intersection(b)
-
-    def addCleanObsNames(adata,regex="-[0-9]"):
-        try:
-            adata.obs.loc[:,"clean_obs_names"]=adata.obs.loc[:,"clean_obs_names"]
-        except:
-            adata.obs.loc[:,"clean_obs_names"]=adata.obs_names
-        adata.obs.loc[:,"clean_obs_names"]=gsub(regex, "",adata.obs.loc[:,"clean_obs_names"])
-        return(adata)
 
     def match(a,b):
         return([ b.index(x) if x in b else None for x in a ])
@@ -121,8 +127,8 @@ def rna_velocity(adata,loomfile,basis='tsne',prefiltered=True,k=100,cleanObsRege
             #plt.scatter(x, gamma[i]*x + offset[i])
             #plt.scatter(x, X_du[index].toarray()[0])
             #plt.show()
+        #adata.uns['gamma']=X_du
         X_du = X_du.tocoo().tocsr()
-
         #Need to run this outside
         #sc.pp.neighbors(adata[:,subset], n_neighbors=100)
         #Also moved this outside
@@ -188,10 +194,9 @@ def rna_velocity(adata,loomfile,basis='tsne',prefiltered=True,k=100,cleanObsRege
         return(graph.tocsr())
 
     #Run above functions
-    adata=addCleanObsNames(adata,cleanObsRegex)
     adata,adataS,adataU=openVelocyto(adata,loomfile)
     adata,ad_u,ad_X= runVelocity(adata,adataS,adataU)
-    sc.pp.neighbors(adata, n_neighbors=k)
+    #sc.pp.neighbors(adata, n_neighbors=k)
     adata.uns['graph']=compute_velocity_graph(adata,ad_u,ad_X)
     #adata=compute_arrows_embedding(adata,basis=basis)
 
@@ -211,6 +216,7 @@ def compute_arrows_embedding(adata,basis="tsne"):
             # might be completely meaningless
             diff /= norm(diff)
             V[i] += adjacency[j, i] * diff
+    adata.obsm['V_' + basis] = V
     logg.info('added \'V_{}\' to `.obsm`'.format(basis))
     return(adata)
 
