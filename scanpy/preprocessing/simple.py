@@ -113,15 +113,16 @@ def filter_cells(data, min_counts=None, min_genes=None, max_counts=None,
         cell_subset = number_per_cell <= max_number
 
     s = np.sum(~cell_subset)
-    logg.msg('filtered out {} cells that have'.format(s), end=' ', v=4)
-    if min_genes is not None or min_counts is not None:
-        logg.msg('less than',
-               str(min_genes) + ' genes expressed'
-               if min_counts is None else str(min_counts) + ' counts', v=4, no_indent=True)
-    if max_genes is not None or max_counts is not None:
-        logg.msg('more than ',
-               str(max_genes) + ' genes expressed'
-               if max_counts is None else str(max_counts) + ' counts', v=4, no_indent=True)
+    if s > 0:
+        logg.info('filtered out {} cells that have'.format(s), end=' ')
+        if min_genes is not None or min_counts is not None:
+            logg.info('less than',
+                   str(min_genes) + ' genes expressed'
+                   if min_counts is None else str(min_counts) + ' counts', no_indent=True)
+        if max_genes is not None or max_counts is not None:
+            logg.info('more than ',
+                   str(max_genes) + ' genes expressed'
+                   if max_counts is None else str(max_counts) + ' counts', no_indent=True)
     return cell_subset, number_per_cell
 
 
@@ -197,15 +198,16 @@ def filter_genes(data, min_counts=None, min_cells=None, max_counts=None,
         gene_subset = number_per_gene <= max_number
 
     s = np.sum(~gene_subset)
-    logg.msg('filtered out {} genes that are detected'.format(s), end=' ', v=4)
-    if min_cells is not None or min_counts is not None:
-        logg.msg('in less than',
-               str(min_cells) + ' cells'
-               if min_counts is None else str(min_counts) + ' counts', v=4, no_indent=True)
-    if max_cells is not None or max_counts is not None:
-        logg.msg('in more than ',
-               str(max_cells) + ' cells'
-               if max_counts is None else str(max_counts) + ' counts', v=4, no_indent=True)
+    if s > 0:
+        logg.info('filtered out {} genes that are detected'.format(s), end=' ')
+        if min_cells is not None or min_counts is not None:
+            logg.info('in less than',
+                   str(min_cells) + ' cells'
+                   if min_counts is None else str(min_counts) + ' counts', no_indent=True)
+        if max_cells is not None or max_counts is not None:
+            logg.info('in more than ',
+                   str(max_cells) + ' cells'
+                   if max_counts is None else str(max_counts) + ' counts', no_indent=True)
     return gene_subset, number_per_gene
 
 
@@ -278,7 +280,7 @@ def filter_genes_dispersion(data,
     """
     if n_top_genes is not None and not all([
             min_disp is None, max_disp is None, min_mean is None, max_mean is None]):
-        logg.warn('If you pass `n_top_genes`, all cutoffs are ignored.')
+        logg.info('If you pass `n_top_genes`, all cutoffs are ignored.')
     if min_disp is None: min_disp = 0.5
     if min_mean is None: min_mean = 0.0125
     if max_mean is None: max_mean = 3
@@ -499,7 +501,7 @@ def pca(data, n_comps=None, zero_center=True, svd_solver='auto', random_state=0,
     svd_solver : `str`, optional (default: 'auto')
         SVD solver to use. Either 'arpack' for the ARPACK wrapper in SciPy
         (scipy.sparse.linalg.svds), or 'randomized' for the randomized algorithm
-        due to Halko (2009). "auto" chooses automatically depending on the size
+        due to Halko (2009). 'auto' chooses automatically depending on the size
         of the problem.
     random_state : `int`, optional (default: 0)
         Change to use different intial states for the optimization.
@@ -525,6 +527,13 @@ def pca(data, n_comps=None, zero_center=True, svd_solver='auto', random_state=0,
     variance : `.uns['pca']`
          Explained variance, equivalent to the eigenvalues of the covariance matrix.
     """
+    # chunked calculation is not randomized, anyways
+    if svd_solver in {'auto', 'randomized'} and not chunked:
+        logg.info(
+            'Note that scikit-learn\'s randomized PCA might not be exactly '
+            'reproducible across different computational platforms. For exact '
+            'reproducibility, choose `svd_solver=\'arpack\'.` This will likely '
+            'become the Scanpy default in the future.')
 
     if n_comps is None: n_comps = N_PCS
 
@@ -604,7 +613,7 @@ def pca(data, n_comps=None, zero_center=True, svd_solver='auto', random_state=0,
 
 
 def normalize_per_cell(data, counts_per_cell_after=None, counts_per_cell=None,
-                       key_n_counts=None, copy=False):
+                       key_n_counts=None, copy=False, layers=[], use_rep=None):
     """Normalize total counts per cell.
 
     Normalize each cell by total counts over all genes, so that every cell has
@@ -668,6 +677,20 @@ def normalize_per_cell(data, counts_per_cell_after=None, counts_per_cell=None,
         adata._inplace_subset_obs(cell_subset)
         normalize_per_cell(adata.X, counts_per_cell_after,
                            counts_per_cell=counts_per_cell[cell_subset])
+
+        layers = adata.layers.keys() if layers == 'all' else layers
+        if use_rep == 'after':
+            after = counts_per_cell_after
+        elif use_rep == 'X':
+            after = np.median(counts_per_cell[cell_subset])
+        elif use_rep is None:
+            after = None
+        else: raise ValueError('use_rep should be "after", "X" or None')
+        for layer in layers:
+            subset, counts = filter_cells(adata.layers[layer], min_counts=1)
+            temp = normalize_per_cell(adata.layers[layer][subset], after, counts[subset], copy=True)
+            adata.layers[layer][subset] = temp
+
         logg.msg('    finished', t=True, end=': ')
         logg.msg('normalized adata.X and added', no_indent=True)
         logg.msg('    \'{}\', counts per cell before normalization (adata.obs)'
@@ -908,7 +931,7 @@ def scale(data, zero_center=True, max_value=None, copy=False):
     return X if copy else None
 
 
-def subsample(data, fraction, random_state=0, copy=False):
+def subsample(data, fraction=None, n_obs=None, random_state=0, copy=False):
     """Subsample to a fraction of the number of observations.
 
     Parameters
@@ -916,8 +939,10 @@ def subsample(data, fraction, random_state=0, copy=False):
     data : :class:`~anndata.AnnData`, `np.ndarray`, `sp.sparse`
         The (annotated) data matrix of shape `n_obs` × `n_vars`. Rows correspond
         to cells and columns to genes.
-    fraction : float in [0, 1]
+    fraction : `float` in [0, 1] or `None`, optional (default: `None`)
         Subsample to this `fraction` of the number of observations.
+    n_obs : `int` or `None`, optional (default: `None`)
+        Subsample to this number of observations.
     random_state : `int` or `None`, optional (default: 0)
         Random seed to change subsampling.
     copy : `bool`, optional (default: `False`)
@@ -930,14 +955,19 @@ def subsample(data, fraction, random_state=0, copy=False):
     subsamples the passed :class:`~anndata.AnnData` (`copy == False`) or
     returns a subsampled copy of it (`copy == True`).
     """
-    if fraction > 1 or fraction < 0:
-        raise ValueError('`fraction` needs to be within [0, 1], not {}'
-                         .format(fraction))
     np.random.seed(random_state)
-    n_obs = data.n_obs if isinstance(data, AnnData) else data.shape[0]
-    new_n_obs = int(fraction * n_obs)
-    obs_indices = np.random.choice(n_obs, size=new_n_obs, replace=False)
-    logg.msg('... subsampled to {} data points'.format(new_n_obs))
+    old_n_obs = data.n_obs if isinstance(data, AnnData) else data.shape[0]
+    if n_obs is not None:
+        new_n_obs = n_obs
+    elif fraction is not None:
+        if fraction > 1 or fraction < 0:
+            raise ValueError('`fraction` needs to be within [0, 1], not {}'
+                             .format(fraction))
+        new_n_obs = int(fraction * old_n_obs)
+        logg.msg('... subsampled to {} data points'.format(new_n_obs))
+    else:
+        raise ValueError('Either pass `n_obs` or `fraction`.')
+    obs_indices = np.random.choice(old_n_obs, size=new_n_obs, replace=False)
     if isinstance(data, AnnData):
         adata = data.copy() if copy else data
         adata._inplace_subset_obs(obs_indices)

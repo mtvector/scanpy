@@ -181,19 +181,36 @@ def rank_genes_groups(
             rankings_gene_scores.append(scores[global_indices])
             rankings_gene_names.append(adata_comp.var_names[global_indices])
     elif method == 'logreg':
+    #if reference is not set, then the groups listed will be compared to the rest
+    #if reference is set, then the groups listed will be compared only to the other groups listed
         from sklearn.linear_model import LogisticRegression
-        if reference != 'rest':
-            raise ValueError('\'logreg\' is only implemented for `reference==\'rest\'`.')
+        reference = groups_order[0]
+        if len(groups) == 1:
+            raise Exception("Cannot perform logistic regression on a single cluster.")
+
+        adata_copy = adata[adata.obs[groupby].isin(groups_order)]
+        
+        adata_comp = adata_copy
+        if adata.raw is not None and use_raw:
+            adata_comp = adata_copy.raw
+        X = adata_comp.X
+            
         clf = LogisticRegression(**kwds)
-        clf.fit(X, adata.obs[groupby])
+        clf.fit(X, adata_copy.obs[groupby])
         scores_all = clf.coef_
         for igroup, group in enumerate(groups_order):
-            scores = scores_all[igroup]
+            if len(groups) <= 2: #binary logistic regression
+                scores = scores_all[0]
+            else:
+                scores = scores_all[igroup]
             partition = np.argpartition(scores, -n_genes_user)[-n_genes_user:]
             partial_indices = np.argsort(scores[partition])[::-1]
             global_indices = reference_indices[partition][partial_indices]
             rankings_gene_scores.append(scores[global_indices])
-            rankings_gene_names.append(adata_comp.var_names[global_indices])
+            rankings_gene_names.append(adata_copy.raw.var_names[global_indices])
+            if len(groups) <= 2:
+                break
+
     elif method == 'wilcoxon':
         # Wilcoxon-rank-sum test is usually more powerful in detecting marker genes
         # Limit maximal RAM that is required by the calculation. Currently set fixed to roughly 100 MByte
@@ -289,7 +306,7 @@ def rank_genes_groups(
                 rankings_gene_names.append(adata_comp.var_names[global_indices])
 
     groups_order_save = [str(g) for g in groups_order]
-    if reference != 'rest':
+    if (reference != 'rest' and method != 'logreg') or (method == 'logreg' and len(groups) == 2):
         groups_order_save = [g for g in groups_order if g != reference]
     adata.uns[key_added]['scores'] = np.rec.fromarrays(
         [n for n in rankings_gene_scores],
