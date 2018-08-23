@@ -27,9 +27,6 @@ def addCleanObsNames(adata,regex="-[0-9]"):
 def rna_velocity(adata,loomfile,basis='tsne',prefiltered=True,k=100,cleanObsRegex="-[0-9]"):
     def checkDuplicates(a):
         return(len(a) == len(set(a)))
-    
-    def gsub(regex, sub, l):
-        return([re.sub(regex, sub, x) for x in l])
 
     def gsub(regex, sub, l):
         return([re.sub(regex, sub, x) for x in l])
@@ -199,8 +196,9 @@ def rna_velocity(adata,loomfile,basis='tsne',prefiltered=True,k=100,cleanObsRege
     #sc.pp.neighbors(adata, n_neighbors=k)
     adata.uns['graph']=compute_velocity_graph(adata,ad_u,ad_X)
     #adata=compute_arrows_embedding(adata,basis=basis)
-
-    return(adata)
+    vdata=adata.copy()
+    vdata.X=ad_X
+    return(adata,vdata)
 
 def compute_arrows_embedding(adata,basis="tsne"):
     if 'graph' not in adata.uns:
@@ -235,4 +233,3 @@ def plot_velocity_arrows(adata,basis='tsne',cluster='louvain',cluster_colors='lo
     plt.quiver(adata.obsm['X_' + basis][:,0],adata.obsm['X_' + basis][:,1],
                adata.obsm['V_' + basis][:,0],adata.obsm['V_' + basis][:,1],
                scale=quiver_scale,**quiver_kwargs)
-
