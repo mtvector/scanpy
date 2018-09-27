@@ -10,7 +10,7 @@ from ..docs import doc_adata_color_etc, doc_edges_arrows, doc_scatter_bulk, doc_
 def diffmap(
         adata,
         color=None,
-        use_raw=True,
+        use_raw=None,
         sort_order=True,
         alpha=None,
         groups=None,
@@ -88,7 +88,7 @@ def draw_graph(
         adata,
         layout=None,
         color=None,
-        use_raw=True,
+        use_raw=None,
         edges=False,
         edges_width=0.1,
         edges_color='grey',
@@ -148,6 +148,7 @@ def draw_graph(
         legend_fontweight=legend_fontweight,
         color_map=color_map,
         palette=palette,
+        frameon=frameon,
         right_margin=right_margin,
         size=size,
         title=title,
@@ -164,7 +165,7 @@ def draw_graph(
 def tsne(
         adata,
         color=None,
-        use_raw=True,
+        use_raw=None,
         edges=False,
         edges_width=0.1,
         edges_color='grey',
@@ -230,7 +231,7 @@ def tsne(
 def umap(
         adata,
         color=None,
-        use_raw=True,
+        use_raw=None,
         edges=False,
         edges_width=0.1,
         edges_color='grey',
@@ -300,7 +301,7 @@ def umap(
 def phate(
         adata,
         color=None,
-        use_raw=True,
+        use_raw=None,
         edges=False,
         edges_width=0.1,
         edges_color='grey',
