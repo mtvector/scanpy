@@ -96,6 +96,7 @@ def rank_genes_groups(
         raise ValueError('reference = {} needs to be one of groupby = {}.'
                          .format(reference,
                                  adata.obs[groupby].cat.categories.tolist()))
+    
     groups_order, groups_masks = utils.select_groups(
         adata, groups_order, groupby)
 
@@ -137,8 +138,11 @@ def rank_genes_groups(
     rankings_gene_scores = []
     rankings_gene_names = []
     rankings_gene_logfoldchanges = []
+    rankings_gene_pvals = []
+    rankings_gene_pvals_adj = []
     
     if method in {'t-test', 't-test_overestim_var'}:
+        from scipy import stats
         # loop over all masks and compute means, variances and sample numbers
         means = np.zeros((n_groups, n_genes))
         vars = np.zeros((n_groups, n_genes))
@@ -160,10 +164,18 @@ def rank_genes_groups(
             
             denominator = np.sqrt(vars[igroup]/ns_group + var_rest/ns_rest)
             denominator[np.flatnonzero(denominator == 0)] = np.nan
-            scores = (means[igroup] - mean_rest) / denominator
+            scores = (means[igroup] - mean_rest) / denominator #Welch t-test
             mean_rest[mean_rest == 0] = 1e-9  # set 0s to small value
             foldchanges = (means[igroup] + 1e-9) / mean_rest
             scores[np.isnan(scores)] = 0
+            #Get p-values
+            denominator_dof = (np.square(vars[igroup]) / (np.square(ns_group)*(ns_group-1))) + (
+                (np.square(var_rest) / (np.square(ns_rest) * (ns_rest - 1))))
+            denominator_dof[np.flatnonzero(denominator_dof == 0)] = np.nan
+            dof = np.square(vars[igroup]/ns_group + var_rest/ns_rest) / denominator_dof # dof calculation for Welch t-test
+            dof[np.isnan(dof)] = 0
+            pvals = stats.t.sf(abs(scores), dof)*2 # *2 because of two-tailed t-test
+            pvals_adj = pvals * n_genes
             scores_sort = np.abs(scores) if rankby_abs else scores
             partition = np.argpartition(scores_sort, -n_genes_user)[-n_genes_user:]
             partial_indices = np.argsort(scores_sort[partition])[::-1]
@@ -171,6 +183,8 @@ def rank_genes_groups(
             rankings_gene_scores.append(scores[global_indices])
             rankings_gene_logfoldchanges.append(np.log2(np.abs(foldchanges[global_indices])))
             rankings_gene_names.append(adata_comp.var_names[global_indices])
+            rankings_gene_pvals.append(pvals[global_indices])
+            rankings_gene_pvals_adj.append(pvals_adj[global_indices])
             
     elif method == 'logreg':
         # if reference is not set, then the groups listed will be compared to the rest
@@ -184,12 +198,12 @@ def rank_genes_groups(
         if adata.raw is not None and use_raw:
             adata_comp = adata_copy.raw
         X = adata_comp.X
-            
+
         clf = LogisticRegression(**kwds)
-        clf.fit(X, adata_copy.obs[groupby])
+        clf.fit(X, adata_copy.obs[groupby].cat.codes)
         scores_all = clf.coef_
         for igroup, group in enumerate(groups_order):
-            if len(groups) <= 2:  # binary logistic regression
+            if len(groups_order) <= 2:  # binary logistic regression
                 scores = scores_all[0]
             else:
                 scores = scores_all[igroup]
@@ -198,12 +212,10 @@ def rank_genes_groups(
             global_indices = reference_indices[partition][partial_indices]
             rankings_gene_scores.append(scores[global_indices])
             rankings_gene_names.append(adata_comp.var_names[global_indices])
-            if len(groups) <= 2:
+            if len(groups_order) <= 2:
                 break
 
     elif method == 'wilcoxon':
-        # The whole thing below is an early draft by Tobias Callies and should be cleaned up at some point.
-
         CONST_MAX_SIZE = 10000000
         ns_rest = np.zeros(n_groups, dtype=int)
         # initialize space for z-scores
@@ -295,6 +307,7 @@ def rank_genes_groups(
                 rankings_gene_scores.append(scores[imask, global_indices])
                 rankings_gene_names.append(adata_comp.var_names[global_indices])
 
+
     groups_order_save = [str(g) for g in groups_order]
     if (reference != 'rest' and method != 'logreg') or (method == 'logreg' and len(groups) == 2):
         groups_order_save = [g for g in groups_order if g != reference]
@@ -309,6 +322,12 @@ def rank_genes_groups(
         adata.uns[key_added]['logfoldchanges'] = np.rec.fromarrays(
             [n for n in rankings_gene_logfoldchanges],
             dtype=[(rn, 'float32') for rn in groups_order_save])
+        adata.uns[key_added]['pvals'] = np.rec.fromarrays(
+            [n for n in rankings_gene_pvals],
+            dtype=[(rn, 'float64') for rn in groups_order_save])
+        adata.uns[key_added]['pvals_adj'] = np.rec.fromarrays(
+            [n for n in rankings_gene_pvals_adj],
+            dtype=[(rn, 'float64') for rn in groups_order_save])
     
     logg.info('    finished', time=True, end=' ' if settings.verbosity > 2 else '\n')
     logg.hint(
@@ -316,6 +335,8 @@ def rank_genes_groups(
         '    \'names\', sorted np.recarray to be indexed by group ids\n'
         '    \'scores\', sorted np.recarray to be indexed by group ids\n'
         .format(key_added)
-        + ('    \'logfoldchanges\', sorted np.recarray to be indexed by group ids'
+        + ('    \'logfoldchanges\', sorted np.recarray to be indexed by group ids\n'
+           '    \'pvals\', sorted np.recarray to be indexed by group ids\n'
+           '    \'pvals_adj\', sorted np.recarray to be indexed by group ids'
            if method in {'t-test', 't-test_overestim_var'} else ''))
     return adata if copy else None
